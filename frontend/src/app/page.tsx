@@ -7,10 +7,12 @@ import SettingsModal from "../components/SettingsModal"; // Import the new compo
 interface Message {
   text: string;
   sender: "user" | "robot";
+  renderedText?: React.ReactNode[];
 }
 
 interface AssistantMessage {
   text: string;
+  renderedText?: React.ReactNode[];
 }
 
 const applyMatrixEffect = (text: string) => {
@@ -35,7 +37,11 @@ export default function Home() {
 
   const handleSendMessage = async () => {
     if (input.trim()) {
-      const userMessage = { text: input, sender: "user" } as Message;
+      const userMessage = {
+        text: input,
+        sender: "user",
+        renderedText: applyMatrixEffect(input),
+      } as Message;
       setMessages((prevMessages) => [...prevMessages, userMessage]);
       setInput("");
 
@@ -50,8 +56,8 @@ export default function Home() {
         developerMessage: string,
         userMessage: string,
         onChunk: (text: string) => void,
-        onError: (error: string) => void
-      ) => {
+  onError: (error: string) => void
+): Promise<string> => {
         try {
           const response = await fetch("/api/chat", {
             method: "POST",
@@ -82,19 +88,22 @@ export default function Home() {
             receivedText += decoder.decode(value, { stream: true });
             onChunk(receivedText);
           }
+          return receivedText;
         } catch (error: unknown) {
           console.error("Backend API Error:", error);
           if (error instanceof Error) {
             onError(error.message);
+            throw error; // Re-throw the error so the promise chain can catch it
           } else {
             onError("An unknown error occurred");
+            throw new Error("An unknown error occurred"); // Re-throw a generic error
           }
         }
       };
 
       // Main chat AI response
       setMessages((prevMessages) => [...prevMessages, { text: "Processing...", sender: "robot" }]);
-      streamApiResponse(
+      const mainChatPromise = streamApiResponse(
         mainModel,
         "You are a helpful AI assistant in a corrupt terminal.",
         input,
@@ -116,7 +125,7 @@ export default function Home() {
 
       // Assistant chat AI response
       setAssistantMessages((prev) => [...prev, { text: "Thinking..." }]);
-      streamApiResponse(
+      const assistantChatPromise = streamApiResponse(
         assistantModel,
         "You are a helpful AI assistant providing concise logs.",
         input,
@@ -135,6 +144,26 @@ export default function Home() {
           });
         }
       );
+
+      // After both promises resolve, apply the matrix effect
+      Promise.all([mainChatPromise, assistantChatPromise]).then(([mainText, assistantText]) => {
+        setMessages((prev) => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage && lastMessage.sender === "robot") {
+            lastMessage.renderedText = applyMatrixEffect(mainText);
+          }
+          return newMessages;
+        });
+        setAssistantMessages((prev) => {
+          const newMessages = [...prev];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage) {
+            lastMessage.renderedText = applyMatrixEffect(assistantText);
+          }
+          return newMessages;
+        });
+      });
     }
   };
 
@@ -155,7 +184,7 @@ export default function Home() {
           <div className="h-24 overflow-y-auto text-sm text-green-300">
             {assistantMessages.map((msg, index) => (
               <div key={index} className="mb-1">
-                {applyMatrixEffect(msg.text)}
+                {msg.renderedText || msg.text}
               </div>
             ))}
           </div>
@@ -199,7 +228,7 @@ export default function Home() {
                       : "bg-gray-800 border-green-700 text-green-400"
                   }`}
                 >
-                  {applyMatrixEffect(msg.text)}
+                  {msg.renderedText || msg.text}
                 </span>
               </div>
             ))

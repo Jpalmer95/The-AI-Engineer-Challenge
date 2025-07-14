@@ -1,0 +1,1 @@
+For Next.js documentation, reference https://nextjs.org/docs
